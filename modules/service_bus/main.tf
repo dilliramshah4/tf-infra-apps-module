@@ -1,21 +1,19 @@
-provider "azurerm" {
-  features {}
-  subscription_id = var.subscription_id
-}
-
-
-# Service Bus Namespace (unchanged)
-resource "azurerm_servicebus_namespace" "example" {
-  name                = var.servicebus_namespace_name
-  location            = var.resource_group_location
+resource "azurerm_servicebus_namespace" "this" {
+  name                = var.namespace_name
+  location            = var.location
   resource_group_name = var.resource_group_name
-  sku                 = "Basic"
+  sku                 = var.sku
+
+  tags = var.tags
 }
 
-# Queue
-resource "azurerm_servicebus_queue" "example" {
-  name         = var.servicebus_queue_name
-  namespace_id = azurerm_servicebus_namespace.example.id
- # enable_partitioning = true
+resource "azurerm_servicebus_topic" "this" {
+  name         = var.topic_name
+  namespace_id = azurerm_servicebus_namespace.this.id
 }
 
+resource "azurerm_servicebus_subscription" "this" {
+  name                = var.subscription_name
+  topic_id            = azurerm_servicebus_topic.this.id
+  max_delivery_count  = var.max_delivery_count
+}

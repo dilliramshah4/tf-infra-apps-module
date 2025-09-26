@@ -1,24 +1,42 @@
-variable "subscription_id" {
+variable "namespace_name" {
+  description = "The name of the Service Bus namespace."
   type        = string
-  description = "The Azure Subscription ID"
+}
+
+variable "location" {
+  description = "Azure region."
+  type        = string
 }
 
 variable "resource_group_name" {
+  description = "The name of the resource group."
   type        = string
-  description = "Name of the existing Azure Resource Group"
 }
 
-variable "resource_group_location" {
+variable "sku" {
+  description = "The SKU for the Service Bus namespace."
   type        = string
-  description = "Location of the Azure Resource Group"
+  default     = "Standard"
 }
 
-variable "servicebus_namespace_name" {
+variable "topic_name" {
+  description = "The name of the Service Bus topic."
   type        = string
-  description = "Name for the Service Bus Namespace (6-50 chars, start with letter)"
 }
 
-variable "servicebus_queue_name" {
+variable "subscription_name" {
+  description = "The name of the Service Bus subscription."
   type        = string
-  description = "Name for the Service Bus Queue"
+}
+
+variable "max_delivery_count" {
+  description = "Maximum number of deliveries before dead-lettering."
+  type        = number
+  default     = 10
+}
+
+variable "tags" {
+  description = "Tags to apply to resources."
+  type        = map(string)
+  default     = {}
 }

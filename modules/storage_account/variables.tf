@@ -1,9 +1,3 @@
-variable "subscription_id" {
-  description = "Azure subscription ID"
-  type        = string
-}
-
-
 variable "storage_account_name" {
   description = "The name of the storage account"
   type        = string
@@ -25,17 +19,15 @@ variable "account_tier" {
   default     = "Standard"  # Default value if not passed
 }
 
-
+variable "account_replication_type" {
+  description = "The replication type for the storage account"
+  type        = string
+  default     = "LRS"  # Default value if not passed
+}
 
 
 variable "tags" {
   description = "Tags to associate with the storage account"
   type        = map(string)
   default     = {}  # Optional: Add default tags if needed
-}
-
-variable "account_replication_type" {
-  description = "Replication strategy (e.g., LRS, GRS, RAGRS)"
-  type        = string
-  default     = "RAGRS"
 }
