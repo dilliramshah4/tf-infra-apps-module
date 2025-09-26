@@ -1,0 +1,152 @@
+name: Deploy Azure Virtual Network, CAE & Log Analytics
+
+on:
+  workflow_dispatch:
+    inputs:
+      resource_group_name:
+        description: "Resource Group Name"
+        required: true
+      resource_group_location:
+        description: "Azure Region (optional, defaults to eastus)"
+        required: false
+        default: ""
+      vnet_name:
+        description: "Virtual Network Name"
+        required: true
+      subnet_name:
+        description: "Delegated Subnet Name"
+        required: true
+      cae_name:
+        description: "Container App Environment Name"
+        required: true
+      log_analytics_name:
+        description: "Log Analytics Workspace Name"
+        required: true
+      vnet_address_space:
+        description: "VNet address space (CIDR, e.g., 10.100.0.0/16)"
+        required: false
+        default: ""
+      infra_subnet_address_prefix:
+        description: "Infra subnet address prefix (CIDR, e.g., 10.100.0.0/23)"
+        required: false
+        default: ""
+      apps_subnet_address_prefix:
+        description: "App subnet address prefix (CIDR, e.g., 10.100.2.0/23)"
+        required: false
+        default: ""
+      action:
+        description: "Terraform action"
+        required: true
+        default: "apply"
+        type: choice
+        options:
+          - apply
+          - destroy
+
+env:
+  AZURE_STORAGE_ACCOUNT: ${{ secrets.AZURE_STORAGE_ACCOUNT }}
+  AZURE_STORAGE_CONTAINER: "tf-infra"
+  AZURE_STORAGE_KEY: ${{ secrets.AZURE_STORAGE_KEY }}
+  AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+  # Compose a unique tfstate filename per resource group and vnet name
+  TFSTATE_KEY: ${{ github.event.inputs.resource_group_name }}-${{ github.event.inputs.vnet_name }}.tfstate
+
+jobs:
+  terraform:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./modules/vnet_cae_log_analytics
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: "1.5.7"
+
+      - name: Create minimal backend.tf
+        run: |
+          cat > backend.tf <<EOF
+          terraform {
+            backend "azurerm" {}
+          }
+          EOF
+
+      - name: Terraform Init
+        run: |
+          terraform init -input=false \
+            -backend-config="storage_account_name=${{ env.AZURE_STORAGE_ACCOUNT }}" \
+            -backend-config="container_name=${{ env.AZURE_STORAGE_CONTAINER }}" \
+            -backend-config="key=${{ env.TFSTATE_KEY }}" \
+            -backend-config="access_key=${{ env.AZURE_STORAGE_KEY }}"
+
+      - name: Set Region with Default
+        id: set_region
+        run: |
+          if [ -z "${{ github.event.inputs.resource_group_location }}" ]; then
+            echo "region=eastus" >> $GITHUB_OUTPUT
+          else
+            echo "region=${{ github.event.inputs.resource_group_location }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Set Additional CIDR Vars
+        id: cidrs
+        run: |
+          tfvars=""
+          if [ -n "${{ github.event.inputs.vnet_address_space }}" ]; then
+            tfvars="$tfvars -var='vnet_address_space=[\"${{ github.event.inputs.vnet_address_space }}\"]'"
+          fi
+          if [ -n "${{ github.event.inputs.infra_subnet_address_prefix }}" ]; then
+            tfvars="$tfvars -var='infra_subnet_address_prefix=[\"${{ github.event.inputs.infra_subnet_address_prefix }}\"]'"
+          fi
+          if [ -n "${{ github.event.inputs.apps_subnet_address_prefix }}" ]; then
+            tfvars="$tfvars -var='apps_subnet_address_prefix=[\"${{ github.event.inputs.apps_subnet_address_prefix }}\"]'"
+          fi
+          echo "TF_CIDR_VARS=$tfvars" >> $GITHUB_OUTPUT
+
+      - name: Terraform Validate
+        run: terraform validate
+
+      - name: Terraform Plan (Apply)
+        if: ${{ github.event.inputs.action == 'apply' }}
+        run: |
+          terraform plan -input=false \
+            -var="resource_group_name=${{ github.event.inputs.resource_group_name }}" \
+            -var="resource_group_location=${{ steps.set_region.outputs.region }}" \
+            -var="vnet_name=${{ github.event.inputs.vnet_name }}" \
+            -var="subnet_name=${{ github.event.inputs.subnet_name }}" \
+            -var="cae_name=${{ github.event.inputs.cae_name }}" \
+            -var="log_analytics_name=${{ github.event.inputs.log_analytics_name }}" \
+            -var="subscription_id=${{ env.AZURE_SUBSCRIPTION_ID }}" \
+            ${{ steps.cidrs.outputs.TF_CIDR_VARS }} \
+            -out=tfplan
+
+      - name: Terraform Apply
+        if: ${{ github.event.inputs.action == 'apply' }}
+        run: terraform apply -input=false -auto-approve tfplan
+
+      - name: Terraform Plan Destroy
+        if: ${{ github.event.inputs.action == 'destroy' }}
+        run: |
+          terraform plan -destroy -input=false \
+            -var="resource_group_name=${{ github.event.inputs.resource_group_name }}" \
+            -var="resource_group_location=${{ steps.set_region.outputs.region }}" \
+            -var="vnet_name=${{ github.event.inputs.vnet_name }}" \
+            -var="subnet_name=${{ github.event.inputs.subnet_name }}" \
+            -var="cae_name=${{ github.event.inputs.cae_name }}" \
+            -var="log_analytics_name=${{ github.event.inputs.log_analytics_name }}" \
+            -var="subscription_id=${{ env.AZURE_SUBSCRIPTION_ID }}" \
+            ${{ steps.cidrs.outputs.TF_CIDR_VARS }} \
+            -out=tfdestroy
+
+      - name: Terraform Destroy
+        if: ${{ github.event.inputs.action == 'destroy' }}
+        run: terraform apply -input=false -auto-approve tfdestroy

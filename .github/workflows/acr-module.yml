@@ -1,0 +1,121 @@
+name: Deploy Container Registry
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "Terraform action"
+        required: true
+        default: "apply"
+        type: choice
+        options:
+          - apply
+          - destroy
+      registry_name:
+        description: "ACR Name"
+        required: true
+      resource_group_name:
+        description: "Resource Group Name"
+        required: true
+      location:
+        description: "Azure Region (optional, defaults to eastus)"
+        required: false
+        default: ""
+      registry_sku:
+        description: "Azure Container Registry SKU"
+        required: true
+        type: choice
+        default: "Standard"
+        options:
+          - Basic
+          - Standard
+          - Premium
+
+env:
+  AZURE_STORAGE_ACCOUNT: ${{ secrets.AZURE_STORAGE_ACCOUNT }}
+  AZURE_STORAGE_CONTAINER: "tf-infra"
+  AZURE_STORAGE_KEY: ${{ secrets.AZURE_STORAGE_KEY }}
+  AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+  # Compose a unique Terraform state key from resource group and registry name
+  TFSTATE_KEY: ${{ github.event.inputs.resource_group_name }}-${{ github.event.inputs.registry_name }}.tfstate
+
+jobs:
+  terraform:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./modules/container_registry
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: "1.5.7"
+
+      # Minimal backend configuration - backend type only, no variables/interpolations
+      - name: Create minimal backend.tf
+        run: |
+          cat > backend.tf <<EOF
+          terraform {
+            backend "azurerm" {}
+          }
+          EOF
+
+      # Run terraform init with proper quoting on backend-config params passed as CLI args
+      - name: Terraform Init
+        run: |
+          terraform init -input=false \
+            -backend-config="storage_account_name=${{ env.AZURE_STORAGE_ACCOUNT }}" \
+            -backend-config="container_name=${{ env.AZURE_STORAGE_CONTAINER }}" \
+            -backend-config="key=${{ env.TFSTATE_KEY }}" \
+            -backend-config="access_key=${{ env.AZURE_STORAGE_KEY }}"
+
+      - name: Terraform Validate
+        run: terraform validate
+
+      - name: Set Location with Default
+        id: set_location
+        run: |
+          if [ -z "${{ github.event.inputs.location }}" ]; then
+            echo "effective_location=eastus" >> $GITHUB_OUTPUT
+          else
+            echo "effective_location=${{ github.event.inputs.location }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Terraform Plan (Apply)
+        if: ${{ github.event.inputs.action == 'apply' }}
+        run: |
+          terraform plan -input=false \
+            -var="registry_name=${{ github.event.inputs.registry_name }}" \
+            -var="resource_group_name=${{ github.event.inputs.resource_group_name }}" \
+            -var="location=${{ steps.set_location.outputs.effective_location }}" \
+            -var="subscription_id=${{ env.AZURE_SUBSCRIPTION_ID }}" \
+            -var="registry_sku=${{ github.event.inputs.registry_sku }}" \
+            -out=tfplan
+
+      - name: Terraform Apply
+        if: ${{ github.event.inputs.action == 'apply' }}
+        run: terraform apply -input=false -auto-approve tfplan
+
+      - name: Terraform Plan Destroy
+        if: ${{ github.event.inputs.action == 'destroy' }}
+        run: |
+          terraform plan -destroy -input=false \
+            -var="registry_name=${{ github.event.inputs.registry_name }}" \
+            -var="resource_group_name=${{ github.event.inputs.resource_group_name }}" \
+            -var="location=${{ steps.set_location.outputs.effective_location }}" \
+            -var="subscription_id=${{ env.AZURE_SUBSCRIPTION_ID }}" \
+            -var="registry_sku=${{ github.event.inputs.registry_sku }}" \
+            -out=tfdestroy
+
+      - name: Terraform Destroy
+        if: ${{ github.event.inputs.action == 'destroy' }}
+        run: terraform apply -input=false -auto-approve tfdestroy

@@ -1,0 +1,146 @@
+name: Deploy Azure Container App Job
+
+on:
+  workflow_dispatch:
+    inputs:
+      resource_group_name:
+        description: "Resource Group Name"
+        required: true
+      resource_group_location:
+        description: "Azure Region (optional, defaults to eastus)"
+        required: false
+        default: ""
+      cae_name:
+        description: "Container App Environment Name (existing)"
+        required: true
+      log_analytics_name:
+        description: "Existing Log Analytics Workspace Name"
+        required: true
+      container_app_job_name:
+        description: "Container App Job Name"
+        required: true
+      container_job_image:
+        description: "Container Image (e.g., <registry>.azurecr.io/<repo>:<tag>)"
+        required: true
+      acr_password:
+        description: "ACR Admin Password (sensitive)"
+        required: true
+      servicebus_queue_name:
+        description: "Azure Service Bus queue name"
+        required: true
+      action:
+        description: "Terraform action"
+        required: true
+        default: "apply"
+        type: choice
+        options:
+          - apply
+          - destroy
+
+env:
+  AZURE_STORAGE_ACCOUNT: ${{ secrets.AZURE_STORAGE_ACCOUNT }}
+  AZURE_STORAGE_CONTAINER: "tf-infra"
+  AZURE_STORAGE_KEY: ${{ secrets.AZURE_STORAGE_KEY }}
+  AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+  # Compose a unique tfstate filename per resource group + container app job name
+  TFSTATE_KEY: ${{ github.event.inputs.resource_group_name }}-${{ github.event.inputs.container_app_job_name }}.tfstate
+
+jobs:
+  terraform:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./modules/container_app_job
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Extract Container Registry Info
+        id: extract_registry
+        run: |
+          IMAGE="${{ github.event.inputs.container_job_image }}"
+          REGISTRY_SERVER=$(echo "$IMAGE" | cut -d'/' -f1)
+          ACR_USERNAME=$(echo "$REGISTRY_SERVER" | cut -d'.' -f1)
+          echo "registry_server=$REGISTRY_SERVER" >> $GITHUB_OUTPUT
+          echo "acr_username=$ACR_USERNAME" >> $GITHUB_OUTPUT
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: "1.5.7"
+
+      - name: Create minimal backend.tf
+        run: |
+          cat > backend.tf <<EOF
+          terraform {
+            backend "azurerm" {}
+          }
+          EOF
+
+      - name: Terraform Init
+        run: |
+          terraform init -input=false \
+            -backend-config="storage_account_name=${{ env.AZURE_STORAGE_ACCOUNT }}" \
+            -backend-config="container_name=${{ env.AZURE_STORAGE_CONTAINER }}" \
+            -backend-config="key=${{ env.TFSTATE_KEY }}" \
+            -backend-config="access_key=${{ env.AZURE_STORAGE_KEY }}"
+
+      - name: Terraform Validate
+        run: terraform validate
+
+      - name: Set Region with Default
+        id: set_region
+        run: |
+          if [ -z "${{ github.event.inputs.resource_group_location }}" ]; then
+            echo "region=eastus" >> $GITHUB_OUTPUT
+          else
+            echo "region=${{ github.event.inputs.resource_group_location }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Terraform Plan (Apply)
+        if: ${{ github.event.inputs.action == 'apply' }}
+        run: |
+          terraform plan -input=false \
+            -var="subscription_id=${{ env.AZURE_SUBSCRIPTION_ID }}" \
+            -var="resource_group_name=${{ github.event.inputs.resource_group_name }}" \
+            -var="resource_group_location=${{ steps.set_region.outputs.region }}" \
+            -var="cae_name=${{ github.event.inputs.cae_name }}" \
+            -var="log_analytics_name=${{ github.event.inputs.log_analytics_name }}" \
+            -var="container_app_job_name=${{ github.event.inputs.container_app_job_name }}" \
+            -var="container_job_image=${{ github.event.inputs.container_job_image }}" \
+            -var="acr_server=${{ steps.extract_registry.outputs.registry_server }}" \
+            -var="acr_username=${{ steps.extract_registry.outputs.acr_username }}" \
+            -var="acr_password=${{ github.event.inputs.acr_password }}" \
+            -var="servicebus_queue_name=${{ github.event.inputs.servicebus_queue_name }}" \
+            -out=tfplan
+
+      - name: Terraform Apply
+        if: ${{ github.event.inputs.action == 'apply' }}
+        run: terraform apply -input=false -auto-approve tfplan
+
+      - name: Terraform Plan Destroy
+        if: ${{ github.event.inputs.action == 'destroy' }}
+        run: |
+          terraform plan -destroy -input=false \
+            -var="subscription_id=${{ env.AZURE_SUBSCRIPTION_ID }}" \
+            -var="resource_group_name=${{ github.event.inputs.resource_group_name }}" \
+            -var="resource_group_location=${{ steps.set_region.outputs.region }}" \
+            -var="cae_name=${{ github.event.inputs.cae_name }}" \
+            -var="log_analytics_name=${{ github.event.inputs.log_analytics_name }}" \
+            -var="container_app_job_name=${{ github.event.inputs.container_app_job_name }}" \
+            -var="container_job_image=${{ github.event.inputs.container_job_image }}" \
+            -var="acr_server=${{ steps.extract_registry.outputs.registry_server }}" \
+            -var="acr_username=${{ steps.extract_registry.outputs.acr_username }}" \
+            -var="acr_password=${{ github.event.inputs.acr_password }}" \
+            -var="servicebus_queue_name=${{ github.event.inputs.servicebus_queue_name }}" \
+            -out=tfdestroy
+
+      - name: Terraform Destroy
+        if: ${{ github.event.inputs.action == 'destroy' }}
+        run: terraform apply -input=false -auto-approve tfdestroy
