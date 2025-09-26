@@ -1,0 +1,81 @@
+name: Terraform CI/CD
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Terraform action'
+        required: true
+        default: 'apply'
+        type: choice
+        options:
+        - bootstrap
+        - apply
+        - destroy
+
+env:
+  AZURE_STORAGE_ACCOUNT: ${{ secrets.AZURE_STORAGE_ACCOUNT }}
+  AZURE_STORAGE_CONTAINER: "tf-file"
+  AZURE_STORAGE_KEY: ${{ secrets.AZURE_STORAGE_KEY }}
+
+jobs:
+  terraform:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Authenticate to Azure
+      uses: azure/login@v1
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v2
+      with:
+        terraform_version: "1.5.7"
+
+    - name: Configure Terraform backend
+      run: |
+        cat > backend.tf <<EOF
+        terraform {
+          backend "azurerm" {
+            storage_account_name = "${{ env.AZURE_STORAGE_ACCOUNT }}"
+            container_name       = "${{ env.AZURE_STORAGE_CONTAINER }}"
+            key                  = "terraform.tfstate"
+            access_key           = "${{ env.AZURE_STORAGE_KEY }}"
+          }
+        }
+        EOF
+
+    - name: Terraform Init
+      run: terraform init -input=false
+
+    - name: Terraform Validate
+      run: terraform validate
+
+    # 🔹 Bootstrap: create ACR and Storage only
+    - name: Terraform Bootstrap Targeted Apply
+      if: inputs.action == 'bootstrap'
+      run: |
+        terraform plan -input=false -target=module.container_registry -target=module.storage_account -out=tfbootstrap
+        terraform apply -input=false -auto-approve tfbootstrap
+
+    # 🔹 Full Apply
+    - name: Terraform Plan
+      if: inputs.action == 'apply'
+      run: terraform plan -input=false -out=tfplan
+
+    - name: Terraform Apply
+      if: inputs.action == 'apply'
+      run: terraform apply -input=false -auto-approve tfplan
+
+    # 🔹 Destroy
+    - name: Terraform Plan Destroy
+      if: inputs.action == 'destroy'
+      run: terraform plan -destroy -input=false -out=tfdestroy
+
+    - name: Terraform Destroy
+      if: inputs.action == 'destroy'
+      run: terraform apply -input=false -auto-approve tfdestroy

@@ -1,42 +1,32 @@
 variable "registry_name" {
-  description = "The name of the Azure Container Registry"
+  description = "The name of the Azure Container Registry."
   type        = string
 }
 
 variable "resource_group_name" {
-  description = "Resource group name"
+  description = "The name of the resource group where the container registry will be created."
   type        = string
 }
 
 variable "location" {
-  description = "Azure region"
+  description = "The location/region where the container registry will be created."
   type        = string
 }
 
 variable "sku" {
-  description = "SKU of the ACR (Basic, Standard, Premium)"
+  description = "The SKU of the container registry. Possible values are: Basic, Standard, Premium."
   type        = string
-  default     = "Standard"
+  default     = "Basic"
 }
 
 variable "admin_enabled" {
-  description = "Enable admin access"
+  description = "Whether or not to enable the admin user for the container registry."
   type        = bool
-  default     = true
+  default     = false
 }
 
 variable "tags" {
-  description = "Tags for ACR"
+  description = "A mapping of tags for the container registry."
   type        = map(string)
   default     = {}
-}
-variable "subscription_id" {
-  type        = string
-  description = "Azure subscription ID"
-}
-
-variable "registry_sku" {
-  description = "SKU tier for Azure Container Registry"
-  type        = string
-  default     = "Standard"  # You can set your preferred default here
 }
