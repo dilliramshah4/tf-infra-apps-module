@@ -83,7 +83,8 @@ To deploy an Azure Container App frontend, ensure the following:
 
 - The Terraform state backend is configured to use **Azure Blob Storage**, storing all state files within a single container.
 - Each resource/module maintains its state in a **separate file** within this container, ensuring isolation and easier management for each resource.
-  <img width="937" height="419" alt="image" src="https://github.com/user-attachments/assets/aef11b94-c4c1-4b70-a126-0709ba770464" />
+   <img width="1873" height="838" alt="image" src="https://github.com/user-attachments/assets/c7e1a355-a3ce-4b0b-954b-a1ccae8a2275" />
+
 
 ---
 
@@ -107,7 +108,8 @@ You have two deployment options:
 1. **Run the "Deploy Azure Virtual Network, CAE & Log Analytics" Workflow**  
    (e.g., `vnet-cae-log-analytics.yml`)  
    This creates both the Log Analytics workspace and the CAE.
-   <img width="950" height="303" alt="image" src="https://github.com/user-attachments/assets/9b285241-9dd5-403a-8069-03aad45149c7" />
+   <img width="1900" height="606" alt="image" src="https://github.com/user-attachments/assets/b25ff9c3-7443-4fd1-8d62-8be7766ae1a8" />
+
 
 
 3. **Confirm resource details**  
@@ -115,8 +117,9 @@ You have two deployment options:
 
 4. **Deploy the Frontend Container App**  
    Run the Frontend Container App deployment workflow and provide:
-   <img width="714" height="427" alt="image" src="https://github.com/user-attachments/assets/da46acdc-beef-4bb4-874a-d8406c4198b0" />
-   <img width="938" height="425" alt="image" src="https://github.com/user-attachments/assets/6ddec566-2683-40ed-8df5-b15618ec1b15" />
+   <img width="1428" height="853" alt="image" src="https://github.com/user-attachments/assets/04cc274f-b509-4aea-9ee1-72ead5517cd8" />
+   <img width="1876" height="850" alt="image" src="https://github.com/user-attachments/assets/28a8de1d-1a9c-4c3d-9ca3-0c2da95b807d" />
+
 
 
 
